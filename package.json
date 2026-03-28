@@ -11,7 +11,8 @@
     "dev:merchant": "npm -w @stellartap/merchant-web run dev -- --host 0.0.0.0 --port 5173",
     "dev:wallet": "npm -w @stellartap/wallet-web run dev -- --host 0.0.0.0 --port 5174",
     "dev:relayer": "npm -w @stellartap/relayer run start",
-    "dev:all": "concurrently -k -n relayer,merchant,wallet -c green,cyan,magenta \"npm run dev:relayer\" \"npm run dev:merchant\" \"npm run dev:wallet\"",
+    "dev:signaling": "npm -w @stellartap/signaling run start",
+    "dev:all": "concurrently -k -n sig,rel,mer,wal -c blue,green,cyan,magenta \"npm run dev:signaling\" \"npm run dev:relayer\" \"npm run dev:merchant\" \"npm run dev:wallet\"",
     "e2e:testnet": "node scripts/e2e-testnet.mjs"
   },
   "devDependencies": {

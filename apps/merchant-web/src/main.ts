@@ -2,6 +2,10 @@ import QRCode from "qrcode";
 import { encodeQrPayload } from "@stellartap/protocol-qr";
 import type { RequestEnvelope } from "@stellartap/protocol-core";
 import { validateEnvelope } from "@stellartap/protocol-core";
+import {
+  startReceiverTapSession,
+  type ReceiverTapSession
+} from "@stellartap/webrtc-tap";
 
 const HORIZON_TESTNET = "https://horizon-testnet.stellar.org";
 
@@ -103,6 +107,12 @@ function renderApp() {
         <label>Amount (XLM)\n
           <input id="amount" style="width:100%;padding:10px;" value="1" />
         </label>
+        <label>Signaling server (WebRTC tap)\n
+          <input id="signalingUrl" style="width:100%;padding:10px;" placeholder="http://localhost:8788" value="http://localhost:8788" />
+        </label>
+        <label>Display name (shown to payers)\n
+          <input id="displayName" style="width:100%;padding:10px;" value="merchant" />
+        </label>
         <button id="create" style="padding:10px 14px;">Create request</button>
       </section>
 
@@ -118,6 +128,7 @@ function renderApp() {
           <button id="stopVerify" style="padding:10px 14px;" disabled>Stop</button>
         </div>
         <div><strong>Status:</strong> <span id="status">idle</span></div>
+        <div><strong>Tap / WebRTC:</strong> <span id="tapStatus">—</span></div>
         <div><strong>Tx hash:</strong> <span id="txHash">-</span></div>
       </section>
     </main>
@@ -125,20 +136,27 @@ function renderApp() {
 
   const merchantAccountInput = $("merchantAccount") as HTMLInputElement;
   const amountInput = $("amount") as HTMLInputElement;
+  const signalingUrlInput = $("signalingUrl") as HTMLInputElement;
+  const displayNameInput = $("displayName") as HTMLInputElement;
   const createBtn = $("create") as HTMLButtonElement;
   const startVerifyBtn = $("startVerify") as HTMLButtonElement;
   const stopVerifyBtn = $("stopVerify") as HTMLButtonElement;
   const nonceEl = $("nonce");
   const payloadEl = $("payload") as HTMLTextAreaElement;
   const statusEl = $("status");
+  const tapStatusEl = $("tapStatus");
   const txHashEl = $("txHash");
   const qrCanvas = $("qr") as HTMLCanvasElement;
 
   let current: { envelope: RequestEnvelope; payload: string } | null = null;
   let aborter: AbortController | null = null;
+  let receiverSession: ReceiverTapSession | null = null;
 
   createBtn.onclick = async () => {
     txHashEl.textContent = "-";
+    tapStatusEl.textContent = "—";
+    receiverSession?.close();
+    receiverSession = null;
     statusEl.textContent = "creating request…";
     createBtn.disabled = true;
     try {
@@ -155,6 +173,44 @@ function renderApp() {
       await QRCode.toCanvas(qrCanvas, payload, { width: 280, margin: 1 });
       statusEl.textContent = "request ready";
       startVerifyBtn.disabled = false;
+
+      const base = signalingUrlInput.value.trim().replace(/\/$/, "");
+      if (base) {
+        tapStatusEl.textContent = "registering on signaling…";
+        try {
+          const reg = await fetch(`${base}/active-requests`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requestId: env.sessionNonce,
+              username: displayNameInput.value.trim() || "merchant",
+              amount: env.amount,
+              asset: env.asset,
+              expiresInSec: 90
+            })
+          });
+          if (!reg.ok) {
+            const errBody = (await reg.json().catch(() => ({}))) as { error?: string };
+            tapStatusEl.textContent = `signaling: ${errBody.error ?? reg.status} (QR still works)`;
+          } else {
+            const { bindSecret } = (await reg.json()) as { bindSecret: string };
+            receiverSession = startReceiverTapSession({
+              signalingUrl: base,
+              requestId: env.sessionNonce,
+              bindSecret,
+              payloadToSend: payload,
+              onStatus: (s) => {
+                tapStatusEl.textContent = s;
+              },
+              onTxHash: (h) => {
+                txHashEl.textContent = h;
+              }
+            });
+          }
+        } catch (e: any) {
+          tapStatusEl.textContent = `signaling unreachable (${e?.message ?? e}) — use QR`;
+        }
+      }
     } catch (e: any) {
       statusEl.textContent = `error: ${e?.message ?? String(e)}`;
       current = null;

@@ -1,5 +1,5 @@
 {
-  "name": "@stellartap/relayer",
+  "name": "@stellartap/signaling",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,8 +9,9 @@
     "test": "node -e \"process.exit(0)\""
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.19.2",
-    "nanoid": "^5.0.7"
+    "nanoid": "^5.0.7",
+    "socket.io": "^4.8.1"
   }
 }
-

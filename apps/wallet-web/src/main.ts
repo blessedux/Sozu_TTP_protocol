@@ -19,6 +19,11 @@ import {
 import { decodeQrPayload } from "@stellartap/protocol-qr";
 import type { RequestEnvelope } from "@stellartap/protocol-core";
 import { envelopeToBlueprint } from "@stellartap/stellar-intent";
+import {
+  payerTapExchange,
+  subscribePayerRequestList,
+  type PublicActiveRequest
+} from "@stellartap/webrtc-tap";
 
 const HORIZON_TESTNET = "https://horizon-testnet.stellar.org";
 const FRIENDBOT = "https://friendbot.stellar.org";
@@ -51,11 +56,10 @@ async function fetchAccount(publicKey: string) {
   return await server.loadAccount(publicKey);
 }
 
-function parseEnvelopeFromQr(raw: string): RequestEnvelope {
-  const decoded = decodeQrPayload(raw);
+function parseEnvelopeFromPayload(raw: string): RequestEnvelope {
+  const decoded = decodeQrPayload(raw.trim());
   if (decoded.kind === "sep7") {
-    // MVP: support envelope only (merchant-web produces envelope payload).
-    throw new Error("SEP-7 parsing not implemented in MVP yet. Use envelope QR.");
+    throw new Error("SEP-7 parsing not implemented in MVP yet. Use envelope payload.");
   }
   return decoded.envelope;
 }
@@ -123,6 +127,21 @@ function renderApp() {
       <hr style="margin:24px 0;" />
 
       <section style="display:grid;gap:12px;">
+        <h2 style="margin:0;font-size:1.1rem;">Pay nearby (WebRTC tap)</h2>
+        <label>Signaling server\n
+          <input id="signalingUrl" style="width:100%;padding:10px;" placeholder="http://localhost:8788" value="http://localhost:8788" />
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="listenNearby" type="button" style="padding:10px 14px;">Listen for nearby requests</button>
+          <button id="stopListen" type="button" style="padding:10px 14px;" disabled>Stop listening</button>
+        </div>
+        <div id="nearbyList" style="display:grid;gap:8px;"></div>
+      </section>
+
+      <hr style="margin:24px 0;" />
+
+      <section style="display:grid;gap:12px;">
+        <h2 style="margin:0;font-size:1.1rem;">Or paste QR payload</h2>
         <label>Paste scanned QR payload (from merchant app)
           <textarea id="qrInput" style="width:100%;min-height:90px;padding:10px;" placeholder="stellartap:v1:..."></textarea>
         </label>
@@ -143,8 +162,83 @@ function renderApp() {
   const parseBtn = $("parse") as HTMLButtonElement;
   const sendBtn = $("send") as HTMLButtonElement;
   const qrInput = $("qrInput") as HTMLTextAreaElement;
+  const signalingUrlInput = $("signalingUrl") as HTMLInputElement;
+  const listenNearbyBtn = $("listenNearby") as HTMLButtonElement;
+  const stopListenBtn = $("stopListen") as HTMLButtonElement;
+  const nearbyListEl = $("nearbyList") as HTMLDivElement;
 
   let currentEnv: RequestEnvelope | null = null;
+  let nearbySub: { close: () => void } | null = null;
+
+  function renderNearbyList(requests: PublicActiveRequest[]) {
+    nearbyListEl.replaceChildren();
+    const base = signalingUrlInput.value.trim().replace(/\/$/, "");
+    if (requests.length === 0) {
+      const p = document.createElement("p");
+      p.style.margin = "0";
+      p.style.opacity = "0.7";
+      p.textContent = "No active requests (create one on merchant, same signaling URL).";
+      nearbyListEl.appendChild(p);
+      return;
+    }
+    for (const r of requests) {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.flexWrap = "wrap";
+      row.style.gap = "8px";
+      row.style.alignItems = "center";
+      row.style.padding = "8px";
+      row.style.border = "1px solid #ccc";
+      row.style.borderRadius = "8px";
+
+      const label = document.createElement("span");
+      label.textContent = `${r.username} · ${r.amount} ${r.asset}`;
+      row.appendChild(label);
+
+      const tapBtn = document.createElement("button");
+      tapBtn.type = "button";
+      tapBtn.style.padding = "8px 12px";
+      tapBtn.textContent = "Tap to pay";
+      tapBtn.onclick = async () => {
+        if (!base) {
+          setText("status", "Set signaling URL first");
+          return;
+        }
+        const secret = getStoredSecret();
+        if (!secret) {
+          setText("status", "Create a key first");
+          return;
+        }
+        tapBtn.disabled = true;
+        setText("status", "tap: connecting…");
+        try {
+          const { payload, sendTxHash, close } = await payerTapExchange({
+            signalingUrl: base,
+            requestId: r.requestId,
+            onStatus: (s) => setText("status", s)
+          });
+          const env = parseEnvelopeFromPayload(payload);
+          currentEnv = env;
+          setText("dest", env.merchantAccount);
+          setText("amt", `${env.amount} ${env.asset}`);
+          setText("nonce", env.sessionNonce);
+          sendBtn.disabled = false;
+          setText("status", "tap: signing & sending…");
+          const { hash } = await submitPaymentTx({ secret, envelope: env });
+          sendTxHash(hash);
+          setText("txHash", hash);
+          setText("status", "sent via tap");
+          close();
+        } catch (e: any) {
+          setText("status", `tap error: ${e?.message ?? String(e)}`);
+        } finally {
+          tapBtn.disabled = false;
+        }
+      };
+      row.appendChild(tapBtn);
+      nearbyListEl.appendChild(row);
+    }
+  }
 
   const syncKeyState = () => {
     const secret = getStoredSecret();
@@ -198,11 +292,37 @@ function renderApp() {
     }
   };
 
+  listenNearbyBtn.onclick = () => {
+    nearbySub?.close();
+    nearbySub = null;
+    const base = signalingUrlInput.value.trim().replace(/\/$/, "");
+    if (!base) {
+      setText("status", "Set signaling URL");
+      return;
+    }
+    listenNearbyBtn.disabled = true;
+    stopListenBtn.disabled = false;
+    setText("status", "listening for requests…");
+    nearbySub = subscribePayerRequestList({
+      signalingUrl: base,
+      onList: (reqs) => renderNearbyList(reqs)
+    });
+  };
+
+  stopListenBtn.onclick = () => {
+    nearbySub?.close();
+    nearbySub = null;
+    listenNearbyBtn.disabled = false;
+    stopListenBtn.disabled = true;
+    nearbyListEl.replaceChildren();
+    setText("status", "stopped listening");
+  };
+
   parseBtn.onclick = () => {
     setText("txHash", "-");
     setText("status", "parsing…");
     try {
-      const env = parseEnvelopeFromQr(qrInput.value);
+      const env = parseEnvelopeFromPayload(qrInput.value);
       currentEnv = env;
       setText("dest", env.merchantAccount);
       setText("amt", `${env.amount} ${env.asset}`);

@@ -62,12 +62,14 @@ npm run e2e:testnet
 
 | Path | Purpose |
 |------|---------|
-| `apps/wallet-web` | Payer testnet wallet (Vite) |
-| `apps/merchant-web` | Receiver request + QR + Horizon verification |
+| `apps/wallet-web` | Payer testnet wallet (Vite) + **Pay nearby** (WebRTC) |
+| `apps/merchant-web` | Receiver request + QR + **tap receive** (WebRTC) + Horizon verify |
+| `apps/signaling` | Socket.io + `active_requests` TTL (no full payment URI stored) |
 | `apps/relayer` | Optional SSE / future push helper (no tx submission) |
 | `packages/protocol-core` | Envelope types + encoding |
 | `packages/protocol-qr` | QR / URL helpers (browser-safe) |
 | `packages/stellar-intent` | Envelope → payment blueprint |
+| `packages/webrtc-tap` | DataChannel RTT gate + payer/receiver signaling helpers |
 | `packages/stellar-tx-ios` | Placeholder for future native wallet |
 | `scripts/e2e-testnet.mjs` | Headless testnet flow |
 | `docs/` | Architecture, **WebRTC spec**, SEP‑7, security, roadmap |
@@ -80,7 +82,8 @@ npm run e2e:testnet
 npm install
 npm run dev:merchant   # http://localhost:5173
 npm run dev:wallet     # http://localhost:5174
-npm run dev:all        # includes relayer
+npm run dev:signaling  # http://localhost:8788 (required for tap)
+npm run dev:all        # signaling + relayer + merchant + wallet
 npm test
 ```
 
