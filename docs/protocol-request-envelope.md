@@ -4,7 +4,7 @@ This document defines a minimal, transport-agnostic “request envelope” used 
 
 ## Goals
 
-- Work over **QR**, **NFC**, or **BLE** without changing semantics.
+- Work over **WebRTC DataChannel**, **QR**, **paste**, or **link** without changing semantics.
 - Contain only the minimum information needed to build a Stellar payment.
 - Support request matching on-chain via **memo nonce**.
 
@@ -24,7 +24,7 @@ This document defines a minimal, transport-agnostic “request envelope” used 
 
 ## Encoding
 
-MVP encoding is **canonical JSON** with stable key order and explicit `null` for absent optional keys.
+MVP encoding is **canonical JSON** with stable key order and explicit `null` for absent optional keys. QR uses `stellartap:v1:<base64url(json)>`. **WebRTC** may send the equivalent **SEP-0007** URI bytes on the DataChannel after the proximity gate.
 
 ## How the wallet uses it
 
@@ -32,14 +32,13 @@ Wallet builds a Stellar transaction with:
 
 - destination = `merchantAccount`
 - amount/asset = `amount`/`asset`
-- memo = a deterministic encoding containing `sessionNonce` (so the merchant tool can match it)
+- memo = a deterministic encoding containing `sessionNonce` (so the receiver can match it)
 - timebounds = short validity window
 
-## How the merchant tool verifies it
+## How the receiver verifies it
 
-Merchant tool reads Horizon and looks for a confirmed payment matching:
+Receiver reads Horizon and looks for a confirmed payment matching:
 
 - destination == `merchantAccount`
 - amount/asset match
-- memo includes `sessionNonce`
-
+- memo includes the agreed binding for `sessionNonce`

@@ -1,31 +1,32 @@
 # StellarTap Overview (Plain English)
 
-StellarTap is a **peer-to-peer value exchange protocol + self-custodial tools** that let two people (or a customer and a merchant) complete a Stellar payment with a **tap (NFC)** or **scan (QR)**.
+StellarTap is a **peer-to-peer value exchange protocol + self-custodial tools** that let two people (or a customer and a merchant) complete a Stellar payment with a **tap-like UX** (target: **WebRTC** between two phones) or, when needed, **scan/copy (QR)**.
 
 ## The big picture
 
-Imagine you owe someone money. Instead of using card rails or bank transfers, you:
+Imagine you owe someone money. Instead of card rails or bank transfers, you:
 
-1. Tap phones (or scan a QR code)
-2. Confirm on your own device (biometric / PIN where available)
-3. Your wallet signs and submits a Stellar transaction
-4. Both sides see the transaction confirmed on-chain
+1. Receiver creates a request; payer sees it **nearby** and taps to connect (**WebRTC**), or uses **QR** as fallback.
+2. Phones are **close enough** (proximity approximated by **round-trip time** on an encrypted data channel—not NFC or Bluetooth).
+3. The payer’s wallet shows the request and (per product policy) confirms or auto-proceeds after the tap path.
+4. The wallet **signs and submits** a Stellar transaction.
+5. Both sides see confirmation (on-screen; push optional later).
 
 ## Core principles
 
 - **Self-custodial**: private keys never leave the user’s device.
 - **Wallet submits**: only the payer wallet constructs/signs/submits the Stellar transaction.
-- **Merchant tool is non-transactional**: it only generates requests and verifies chain state.
-- **Transport-agnostic**: the same request can be carried via NFC, QR, or BLE.
+- **Receiver tool is non-transactional**: it only generates requests and verifies chain state.
+- **Transport-agnostic requests**: the same **SEP-7 / envelope** can move over **DataChannel**, **QR**, or **link**—semantics stay identical.
+- **No NFC / no Bluetooth** in the current architecture plan; **WebRTC + signaling** is the primary tap story.
 - **Open protocol stance**: the protocol can be published independently of any single app.
 
 ## Why SEP-7 matters
 
-SEP-7 gives us a widely understood “payment request language” that can be encoded into:
+SEP-7 gives a standard “payment request language” that can be encoded into:
 
-- a **QR code** (universal)
-- an **NFC payload** (where available)
-- a **link** that can be shared
+- bytes on a **WebRTC DataChannel**
+- a **QR code** (fallback and debugging)
+- a **link** for messaging
 
-The wallet reads the request and builds the payment transaction locally.
-
+The wallet parses the request and builds the payment transaction locally.

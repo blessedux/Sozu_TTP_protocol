@@ -1,74 +1,72 @@
 # End-to-End Flow (E2E)
 
-This describes the MVP flow without implementation details.
+This describes the **target tap flow** and the **current MVP** (QR/paste).
 
 ## Actors
 
-- **Payer**: the person who will send funds.
-- **Payee/Merchant**: the person who will receive funds.
-- **Stellar network**: settlement layer.
-- **Horizon**: public API gateway to submit and read transactions.
+- **Payer**: sends funds.
+- **Payee/Receiver**: receives funds (merchant tool or wallet in “receive” mode).
+- **Signaling server** (next milestone): matchmaking + WebRTC signaling only.
+- **Stellar network / Horizon**: settlement and verification.
 
 ## Step 1 — Wallet setup (both sides)
 
-1. Payer opens the StellarTap wallet (web/PWA in MVP).
+1. Payer opens the StellarTap wallet (PWA).
 2. Wallet creates or imports a Stellar account.
-3. Private key is stored locally (encrypted at rest); it never leaves the device.
+3. Private key stays on device (encrypted at rest).
 
-Payee does the same (or uses an existing receiving address).
+Receiver configures receiving address and **username** (for discovery when signaling exists).
 
-## Step 2 — Payee requests payment
+## Step 2 — Receiver creates a request
 
-1. Payee opens the merchant request tool (web/PWA in MVP).
-2. Enters amount + asset (MVP: XLM).
-3. Tool produces a **payment request** (SEP-7 link and/or request envelope).
-4. Tool displays the request as a **QR code** (baseline transport).
-5. (Optional) tool broadcasts the same request via NFC/BLE where available.
+1. Receiver opens the request / merchant UI.
+2. Enters amount + asset (MVP: XLM) and optional memo.
+3. Tool builds **SEP-7 / envelope**.
+4. **Target UX:** POST **active request** to signaling server → **“Waiting for tap…”**.
+5. **Current MVP:** Display **QR** or copyable payload (same request bytes/URI).
 
-## Step 3 — Payer receives request (tap or scan)
+## Step 3 — Payer gets the request
 
-Option A (universal): **scan QR**
+### Target (happy path): Pay nearby + tap
 
-1. Payer scans the QR code.
-2. Wallet parses the embedded request (SEP-7 / envelope).
+1. Payer opens **Pay nearby**; WebSocket shows **live request cards**.
+2. Payer **taps** the right card → ICE signaling via WebSocket → **DataChannel** opens.
+3. **Proximity gate:** ping/pong RTT must fall under threshold.
+4. **Full SEP-7 URI** arrives on the channel → wallet parses (same as today).
 
-Option B (where supported): **tap NFC**
+### Fallback: QR or paste
 
-1. Phones exchange the request payload over NFC.
-2. Wallet parses the same request.
+1. Payer scans QR or pastes URI / `stellartap:v1:…` payload.
+2. Wallet parses as today.
 
-## Step 4 — Payer confirms
+## Step 4 — Payer confirmation
 
-Wallet shows a confirmation screen:
-
-- destination (payee address)
-- amount/asset
-- expiry (if provided)
-
-Payer approves (biometric/PIN when available).
+Product decision: after tap + proximity, wallet may show a **single** confirmation or proceed per spec. MVP web wallet today shows explicit **Confirm & send**.
 
 ## Step 5 — Wallet constructs, signs, submits
 
-1. Wallet builds a Stellar payment transaction locally.
-2. Wallet signs using the payer’s private key.
-3. Wallet submits the signed transaction directly to Horizon.
+1. Wallet builds Stellar payment locally.
+2. Signs with payer key.
+3. Submits to Horizon.
 
-## Step 6 — Both sides verify on-chain
+**Target:** optional **tx hash** sent back over DataChannel for instant receiver UI.
 
-- Wallet shows “sent” with tx hash.
-- Payee/merchant tool shows “transaction detected on Stellar” once the transaction is observed on-chain.
+## Step 6 — Both sides see outcome
 
-## Optional — Push confirmation (later milestone)
+- Wallet shows sent + tx hash.
+- Receiver sees match via Horizon (and optional in-channel hash).
 
-A minimal relayer service can subscribe to Horizon and send push notifications after a matching transaction is confirmed. This service does **not** submit transactions.
+## Optional — Push (later)
 
-## Architecture snapshot
+Minimal relayer: Horizon stream → push. **Does not** submit transactions.
+
+## Architecture snapshot (target)
 
 ```mermaid
 flowchart TD
-  Payee[PayeeOrMerchantWebApp] -->|QR/NFC: SEP7OrEnvelope| Payer[PayerWalletWebApp]
+  Payee[ReceiverPWA] -->|Register request| Sig[Signaling]
+  Payer[PayerPWA] -->|List + tap| Sig
+  Payer <-->|WebRTC SEP7 + tx hash| Payee
   Payer -->|Build+Sign+Submit| Horizon[HorizonAPI]
-  Horizon -->|LedgerConfirmed| Stellar[(StellarNetwork)]
   Payee -->|ReadOnlyVerify| Horizon
 ```
-
